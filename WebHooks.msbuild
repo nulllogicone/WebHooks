@@ -11,18 +11,32 @@
     <BuildPortable Condition=" '$(BuildPortable)' == '' ">true</BuildPortable>
     <BuildInParallel Condition=" '$(BuildInParallel)' == '' And $(MSBuildNodeCount) &gt; 1 ">true</BuildInParallel>
     <BuildInParallel Condition=" '$(BuildInParallel)' == '' ">false</BuildInParallel>
-    <TestResultsDirectory>$(MSBuildThisFileDirectory)bin\$(Configuration)\test\TestResults\</TestResultsDirectory>
+    <TestInParallel Condition=" '$(TestInParallel)' == '' ">$(BuildInParallel)</TestInParallel>
+    <TestResultsDirectory>$(MSBuildThisFileDirectory)bin\Test\$(Configuration)\TestResults\</TestResultsDirectory>
     <SkipStrongNamesExe>$(MSBuildThisFileDirectory)packages\Microsoft.Web.SkipStrongNames.1.0.0\tools\SkipStrongNames.exe</SkipStrongNamesExe>
     <SkipStrongNamesXml>$(MSBuildThisFileDirectory)tools\SkipStrongNames.xml</SkipStrongNamesXml>
     <NuGetExe>.nuget\NuGet.exe</NuGetExe>
+
+    <!-- Give all assemblies the same revision. -->
+    <_TwoDigitYear>$([MSBuild]::Subtract($([System.DateTime]::UtcNow.Year), 2000))</_TwoDigitYear>
+    <_ThreeDigitDayOfYear>$([System.DateTime]::UtcNow.DayOfYear.ToString().PadLeft(3, '0'))</_ThreeDigitDayOfYear>
+    <AssemblyRevision>$(_TwoDigitYear)$(_ThreeDigitDayOfYear)</AssemblyRevision>
   </PropertyGroup>
 
   <ItemGroup>
     <SolutionsToBuild Include="WebHooks.sln">
       <BuildInParallel>$(BuildInParallel)</BuildInParallel>
     </SolutionsToBuild>
-    <NugetsToBuild Include="**\*.nuspec"/>
   </ItemGroup>
+
+  <Target Name="GetBuildNumber">
+    <!-- Create second-based build number for local builds. 635556672000000000 is Jan 1, 2015. -->
+    <PropertyGroup>
+      <_SecondBasedTimeStamp>$([System.DateTime]::UtcNow.Subtract($([System.DateTime]::FromBinary(635556672000000000))).TotalSeconds.ToString("F0"))</_SecondBasedTimeStamp>
+      <_SecondBasedTimeStamp>t$([System.Int64]::Parse($(_SecondBasedTimeStamp)).ToString("x9"))</_SecondBasedTimeStamp>
+    </PropertyGroup>
+    <Message Text="/p:BuildNumber=$(_SecondBasedTimeStamp)" Importance="High" />
+  </Target>
 
   <Target Name="EnableSkipStrongNames" DependsOnTargets="RestoreSkipStrongNames">
     <Exec Command='"$(SkipStrongNamesExe)" -e "$(SkipStrongNamesXml)"' />
@@ -61,25 +75,26 @@
 
   <Target Name="RestorePackages" DependsOnTargets="DownloadNuGet">
     <Message Text="Restoring NuGet packages..." Importance="High" />
-    <Exec Command='"$(NuGetExe)" restore "%(SolutionsToBuild.Identity)" -PackagesDirectory packages -NonInteractive -Verbosity quiet -ConfigFile "$(MsBuildThisFileDirectory)\.nuget\NuGet.Config"' />
-    <!-- Pick the right Microsoft.Web.FxCop package to use and copy it to a standard location. -->
+    <Exec Command='SET BuildNumber=$(BuildNumber)
+"$(NuGetExe)" restore "%(SolutionsToBuild.Identity)" -PackagesDirectory packages -NonInteractive -Verbosity quiet -ConfigFile "$(MsBuildThisFileDirectory)\.nuget\NuGet.Config"' />
   </Target>
 
   <Target Name="BuildPackages" DependsOnTargets="UnitTest">
     <Message Text='Building NuGet packages...' Importance="High" />
     <MSBuild Projects="src\Packages\Packages.proj"
              Targets="Build"
-             Properties="Configuration=$(Configuration);VisualStudioVersion=$(VisualStudioVersion)" />
+             Properties="BuildInParallel=$(BuildInParallel);Configuration=$(Configuration);VisualStudioVersion=$(VisualStudioVersion)" />
   </Target>
 
   <Target Name="BuildTools">
+    <!-- Pick the right Microsoft.Web.FxCop package to use and copy it to a standard location. -->
     <PropertyGroup>
         <FxCopProjectLocation>$(MsBuildThisFileDirectory)tools\src\Microsoft.Web.FxCop\</FxCopProjectLocation>
         <CustomFxCopRulesPath>$(MsBuildThisFileDirectory)packages\CustomFxCopRules</CustomFxCopRulesPath>
     </PropertyGroup>
-    <MsBuild 
+    <MsBuild
           Condition=" '$(CodeAnalysis)' == 'true' "
-          Projects="$(FxCopProjectLocation)\Microsoft.Web.FxCop.csproj" 
+          Projects="$(FxCopProjectLocation)\Microsoft.Web.FxCop.csproj"
           Properties="Configuration=Release;OutputPath=$(CustomFxCopRulesPath)" />
   </Target>
 
@@ -92,7 +107,7 @@
           BuildInParallel="%(SolutionsToBuild.BuildInParallel)"
           Targets="Build"
           Condition=" '%(SolutionsToBuild.Portable)' != 'true' or '$(BuildPortable)' == 'true' "
-          Properties="Configuration=$(Configuration);CodeAnalysis=$(CodeAnalysis);StyleCopEnabled=$(StyleCopEnabled);VisualStudioVersion=$(VisualStudioVersion)" />
+          Properties="AssemblyRevision=$(AssemblyRevision);Configuration=$(Configuration);CodeAnalysis=$(CodeAnalysis);StyleCopEnabled=$(StyleCopEnabled);VisualStudioVersion=$(VisualStudioVersion)" />
   </Target>
 
   <Target Name="UnitTest" DependsOnTargets="CheckSkipStrongNames;Build">
@@ -100,18 +115,31 @@
   </Target>
 
   <Target Name="RunTests" DependsOnTargets="CheckSkipStrongNames">
+    <PropertyGroup>
+      <_Platform Condition="'$(Platform)' == '' OR '$(Platform)' == 'Any Cpu'">AnyCpu</_Platform>
+    </PropertyGroup>
     <ItemGroup>
-      <TestDLLsXunit Include="bin\$(Configuration)\test\*.Test.dll;bin\$(Configuration)\test\*.Test.*.dll;bin\$(Configuration)\Test\NetCore\*.Test.dll" />
-      <XunitProject Include="tools\WebHooks.xunit.targets">
-        <Properties>TestAssembly=%(TestDLLsXunit.FullPath);XmlPath=$(TestResultsDirectory)%(TestDLLsXunit.FileName)-XunitResults.xml</Properties>
-      </XunitProject>
+      <_TestDLLsXunit Include="bin\Test\$(Configuration)\*.Test.dll" />
+      <_TestDLLsXunit Include="bin\Test\$(Configuration)\*.Test.*.dll" />
+      <_TestDLLsXunit Include="bin\Test\$(Configuration)\NetCore\*.Test.dll" Condition="'$(BuildPortable)' == 'true'" />
+      <_XunitProject Include="tools\WebHooks.xunit.targets">
+        <Properties>TestAssembly=%(_TestDLLsXunit.FullPath);XmlPath=$(TestResultsDirectory)%(_TestDLLsXunit.FileName)-XunitResults.xml</Properties>
+      </_XunitProject>
+      <_DirectTestProjects Include="test\Microsoft.AspNetCore.*\*.csproj" />
     </ItemGroup>
 
-    <!-- Re-create the test results directory so that print summary doesn't run on old test results -->
+    <!-- Recreate the test results directory so that print summary doesn't run on old test results. -->
     <RemoveDir Directories="$(TestResultsDirectory)" />
     <MakeDir Directories="$(TestResultsDirectory)" />
 
-    <MSBuild Projects="@(XunitProject)" BuildInParallel="$(BuildInParallel)" Targets="Xunit" />
+    <MSBuild Projects="@(_XunitProject)" BuildInParallel="$(TestInParallel)" Targets="Xunit" />
+
+    <!-- Failures in these projects will fail build. But, results will not be included in test run summary. -->
+    <MSBuild
+      BuildInParallel="$(TestInParallel)"
+      Properties="Configuration=$(Configuration);Platform=$(_Platform)"
+      Projects="@(_DirectTestProjects)"
+      Targets="Test" />
   </Target>
 
   <Target Name="CheckSkipStrongNames" DependsOnTargets="RestoreSkipStrongNames">

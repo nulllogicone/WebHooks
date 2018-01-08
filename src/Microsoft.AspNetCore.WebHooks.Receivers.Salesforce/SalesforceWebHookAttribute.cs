@@ -1,0 +1,41 @@
+﻿// Copyright (c) .NET Foundation. All rights reserved.
+// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+
+namespace Microsoft.AspNetCore.WebHooks
+{
+    /// <summary>
+    /// <para>
+    /// An <see cref="System.Attribute"/> indicating the associated action is a Salesforce WebHook endpoint. Specifies
+    /// the optional <see cref="WebHookAttribute.Id"/>. Also adds a <see cref="Filters.WebHookReceiverExistsFilter"/>
+    /// for the action.
+    /// </para>
+    /// <para>
+    /// The signature of the action should be:
+    /// <code>
+    /// Task{IActionResult} ActionName(string id, string @event, TData data, [FromServices] ISalesforceResultCreator resultCreator)
+    /// </code>
+    /// or include the subset of parameters required. <c>TData</c> must be compatible with expected requests e.g.
+    /// <see cref="System.Xml.Linq.XElement"/> or <see cref="SalesforceNotifications"/>. The
+    /// <see cref="ISalesforceResultCreator"/> helps to create SOAP responses.
+    /// </para>
+    /// <para>
+    /// An example Salesforce WebHook URI is '<c>https://{host}/api/webhooks/incoming/salesforce/{id}</c>'.
+    /// See <see href="https://go.microsoft.com/fwlink/?linkid=838587"/> for additional details about Salesforce
+    /// WebHook requests.
+    /// </para>
+    /// </summary>
+    public class SalesforceWebHookAttribute : WebHookAttribute
+    {
+        /// <summary>
+        /// <para>
+        /// Instantiates a new <see cref="SalesforceWebHookAttribute"/> indicating the associated action is a
+        /// Salesforce WebHook endpoint.
+        /// </para>
+        /// <para>This constructor should usually be used at most once in a WebHook application.</para>
+        /// </summary>
+        public SalesforceWebHookAttribute()
+            : base(SalesforceConstants.ReceiverName)
+        {
+        }
+    }
+}

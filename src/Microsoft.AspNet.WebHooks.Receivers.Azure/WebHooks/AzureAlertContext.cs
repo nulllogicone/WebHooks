@@ -4,7 +4,11 @@
 using System;
 using Newtonsoft.Json;
 
+#if NETSTANDARD2_0
+namespace Microsoft.AspNetCore.WebHooks
+#else
 namespace Microsoft.AspNet.WebHooks
+#endif
 {
     /// <summary>
     /// Provides context information for a WebHook notification sent from Azure Alert Service.
@@ -42,7 +46,7 @@ namespace Microsoft.AspNet.WebHooks
         public string SubscriptionId { get; set; }
 
         /// <summary>
-        /// Gets or sets the time at which the alert was triggered. The alert is triggered as soon as 
+        /// Gets or sets the time at which the alert was triggered. The alert is triggered as soon as
         /// the metric is read from the diagnostics storage.
         /// </summary>
         [JsonProperty("timestamp", Required = Required.Always)]
@@ -81,7 +85,8 @@ namespace Microsoft.AspNet.WebHooks
         /// <summary>
         /// Gets or sets the geographic location of the resource.
         /// </summary>
-        [JsonProperty("resourceRegion", Required = Required.Always)]
+        /// <remarks>Set in Metric alerts but not Availability (Web Test) alerts.</remarks>
+        [JsonProperty("resourceRegion")]
         public string ResourceRegion { get; set; }
 
         /// <summary>
